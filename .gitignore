@@ -1,0 +1,21 @@
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Java / Maven
+backend/target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit real credentials, only the .template
+k8s/secret.yaml
+.env
+*.env.local

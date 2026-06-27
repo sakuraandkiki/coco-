@@ -1,0 +1,125 @@
+# 依赖：集群中已安装 APISIX + APISIX Ingress Controller（apisix 命名空间）
+# WAF 使用 APISIX 的 Coraza/ModSecurity 插件（需要预先在 APISIX 侧启用对应插件运行时）
+
+apiVersion: apisix.apache.org/v2
+kind: ApisixTls
+metadata:
+  name: mall-tls
+  namespace: mall
+spec:
+  hosts:
+    - mall.example.com
+  secret:
+    name: mall-tls-secret
+    namespace: mall
+
+---
+# 媒体域名（图片/视频）单独签证书，对应 k8s/certificate.yaml 里的 media-tls Certificate
+apiVersion: apisix.apache.org/v2
+kind: ApisixTls
+metadata:
+  name: mall-media-tls
+  namespace: mall
+spec:
+  hosts:
+    - media.example.com
+  secret:
+    name: media-tls-secret
+    namespace: mall
+
+---
+# 全局限流 + WAF 插件配置，供下面的路由引用
+apiVersion: apisix.apache.org/v2
+kind: ApisixPluginConfig
+metadata:
+  name: mall-security-plugins
+  namespace: mall
+spec:
+  plugins:
+    - name: limit-count
+      enable: true
+      config:
+        count: 200
+        time_window: 60
+        key: remote_addr
+        rejected_code: 429
+    - name: modsecurity
+      enable: true
+      config:
+        rules_set: "OWASP-CRS"
+
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: mall-frontend-route
+  namespace: mall
+spec:
+  http:
+    - name: frontend
+      match:
+        hosts:
+          - mall.example.com
+        paths:
+          - /*
+      backends:
+        - serviceName: frontend
+          servicePort: 80
+      plugin_config_name: mall-security-plugins
+
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: mall-backend-route
+  namespace: mall
+spec:
+  http:
+    - name: backend-api
+      match:
+        hosts:
+          - mall.example.com
+        paths:
+          - /api/*
+      backends:
+        - serviceName: backend
+          servicePort: 8080
+      plugin_config_name: mall-security-plugins
+      plugins:
+        - name: cors
+          enable: true
+          config:
+            allow_origins: "https://mall.example.com"
+            allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
+            allow_headers: "Authorization,Content-Type"
+
+---
+# 媒体文件只读访问：media.example.com -> MinIO，仅放行 GET/HEAD
+# 上传/删除走后端 /api/admin/files/upload 接口，不直接暴露 MinIO 的写操作给公网
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: mall-media-route
+  namespace: mall
+spec:
+  http:
+    - name: media
+      match:
+        hosts:
+          - media.example.com
+        paths:
+          - /*
+        methods:
+          - GET
+          - HEAD
+      backends:
+        - serviceName: minio
+          servicePort: 9000
+      plugins:
+        - name: limit-count
+          enable: true
+          config:
+            count: 500
+            time_window: 60
+            key: remote_addr
+            rejected_code: 429
