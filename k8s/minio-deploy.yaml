@@ -80,18 +80,25 @@ spec:
             claimName: minio-pvc
 
 ---
+# 没有备案域名期间，直接用 NodePort + 服务器公网IP 访问 MinIO 存的图片/视频
+# （对应 backend-secret 里的 MINIO_PUBLIC_URL=http://<服务器IP>:30682）。
+# console端口(管理后台)同样开了NodePort方便临时排查，正式上线/接入网关后应改回 ClusterIP，
+# 不要把MinIO管理后台直接暴露在公网。
 apiVersion: v1
 kind: Service
 metadata:
   name: minio
   namespace: mall
 spec:
+  type: NodePort
   selector:
     app: minio
   ports:
     - name: api
       port: 9000
       targetPort: 9000
+      nodePort: 30682
     - name: console
       port: 9001
       targetPort: 9001
+      nodePort: 30683

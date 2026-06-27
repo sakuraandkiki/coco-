@@ -1,20 +1,23 @@
-# 依赖：集群已安装 cert-manager
-# ClusterIssuer 用 ACME(Let's Encrypt) HTTP-01 校验，按需替换 email/服务器地址
+# ============================================
+# 没有备案域名时的TLS方案：SelfSigned（cert-manager自己签发证书）
+#
+# 跟 ACME(Let's Encrypt) 的区别：
+#   - ACME 需要域名能被公网DNS解析、且 Let's Encrypt 的服务器能从公网验证到你的服务器，
+#     国内服务器配公网域名必须先完成 ICP 备案，否则域名访问会被云厂商拦截。
+#   - SelfSigned 不联系任何外部CA，cert-manager 自己当签发者，因此：
+#       · 不需要域名公网可解析，可以配合 hosts 文件手动映射的私有域名（如 mall.test）使用
+#       · 浏览器不认识这个签发者，会提示"连接不是私密连接"，点"继续访问"后通信依然是加密的
+#
+# 如果以后域名完成备案，把下面 ClusterIssuer 换回 ACME 类型（参考git历史里的旧版本），
+# Certificate 资源本身不用改。
+# ============================================
 
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: letsencrypt-prod
+  name: selfsigned-issuer
 spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: admin@example.com
-    privateKeySecretRef:
-      name: letsencrypt-prod-key
-    solvers:
-      - http01:
-          ingress:
-            ingressClassName: apisix
+  selfSigned: {}
 
 ---
 apiVersion: cert-manager.io/v1
@@ -27,23 +30,7 @@ spec:
   duration: 2160h    # 90天
   renewBefore: 360h  # 到期前15天自动续期
   issuerRef:
-    name: letsencrypt-prod
+    name: selfsigned-issuer
     kind: ClusterIssuer
   dnsNames:
-    - mall.example.com
-
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: mall-media-tls
-  namespace: mall
-spec:
-  secretName: media-tls-secret
-  duration: 2160h
-  renewBefore: 360h
-  issuerRef:
-    name: letsencrypt-prod
-    kind: ClusterIssuer
-  dnsNames:
-    - media.example.com
+    - mall.test

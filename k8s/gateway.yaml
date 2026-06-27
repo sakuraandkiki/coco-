@@ -1,5 +1,10 @@
 # 依赖：集群中已安装 APISIX + APISIX Ingress Controller（apisix 命名空间）
 # WAF 使用 APISIX 的 Coraza/ModSecurity 插件（需要预先在 APISIX 侧启用对应插件运行时）
+#
+# 域名 mall.test 不在公网DNS上解析（IANA保留的.test测试域），仅通过手动配置 hosts 文件
+# （把 mall.test 指向服务器公网IP）来访问，配合 k8s/certificate.yaml 的 SelfSigned 证书，
+# 用于演示"网关绑定自定义域名 + HTTPS"，不依赖、也不触发国内域名备案要求。
+# 对外网公开访问仍然走 http://<服务器IP>:<apisix-gateway NodePort>。
 
 apiVersion: apisix.apache.org/v2
 kind: ApisixTls
@@ -8,23 +13,9 @@ metadata:
   namespace: mall
 spec:
   hosts:
-    - mall.example.com
+    - mall.test
   secret:
     name: mall-tls-secret
-    namespace: mall
-
----
-# 媒体域名（图片/视频）单独签证书，对应 k8s/certificate.yaml 里的 media-tls Certificate
-apiVersion: apisix.apache.org/v2
-kind: ApisixTls
-metadata:
-  name: mall-media-tls
-  namespace: mall
-spec:
-  hosts:
-    - media.example.com
-  secret:
-    name: media-tls-secret
     namespace: mall
 
 ---
@@ -59,7 +50,7 @@ spec:
     - name: frontend
       match:
         hosts:
-          - mall.example.com
+          - mall.test
         paths:
           - /*
       backends:
@@ -78,7 +69,7 @@ spec:
     - name: backend-api
       match:
         hosts:
-          - mall.example.com
+          - mall.test
         paths:
           - /api/*
       backends:
@@ -89,37 +80,6 @@ spec:
         - name: cors
           enable: true
           config:
-            allow_origins: "https://mall.example.com"
+            allow_origins: "https://mall.test"
             allow_methods: "GET,POST,PUT,DELETE,OPTIONS"
             allow_headers: "Authorization,Content-Type"
-
----
-# 媒体文件只读访问：media.example.com -> MinIO，仅放行 GET/HEAD
-# 上传/删除走后端 /api/admin/files/upload 接口，不直接暴露 MinIO 的写操作给公网
-apiVersion: apisix.apache.org/v2
-kind: ApisixRoute
-metadata:
-  name: mall-media-route
-  namespace: mall
-spec:
-  http:
-    - name: media
-      match:
-        hosts:
-          - media.example.com
-        paths:
-          - /*
-        methods:
-          - GET
-          - HEAD
-      backends:
-        - serviceName: minio
-          servicePort: 9000
-      plugins:
-        - name: limit-count
-          enable: true
-          config:
-            count: 500
-            time_window: 60
-            key: remote_addr
-            rejected_code: 429
