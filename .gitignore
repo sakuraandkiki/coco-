@@ -20,5 +20,8 @@ k8s/secret.yaml
 .env
 *.env.local
 
-# Project report / 答辩材料 — not part of the codebase, kept local only
-report/
+# Project report / 答辩材料 — only the final deliverables are tracked,
+# the generation scripts / node_modules / source images stay local only
+report/*
+!report/report.docx
+!report/答辩稿.md
