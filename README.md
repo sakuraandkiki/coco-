@@ -60,7 +60,7 @@ XX 电子商务系统
 - Redis：`localhost:6379`
 - MinIO：`http://localhost:9000`
 
-如果后端运行在 Docker Compose 容器内，`docker-compose.yml` 会通过环境变量把连接地址改成 Compose 内部服务名。
+当前推荐部署为 Windows 本机运行前后端、Windows 原生 MySQL、Docker Redis、Windows 原生 MinIO。Docker Compose 文件保留为可选备用路径，不作为当前答辩展示主路径。
 
 ## 技术栈
 
@@ -71,7 +71,7 @@ XX 电子商务系统
 | 数据库 | MySQL 8 |
 | 缓存 | Redis 7 |
 | 对象存储 | MinIO |
-| 本地编排 | Docker Compose |
+| 本地部署 | Windows 原生依赖 + Redis Docker |
 | 开发工具 | IntelliJ IDEA / PowerShell |
 
 ## 仓库结构
@@ -82,10 +82,10 @@ coco-/
 ├── frontend/                # React 前端
 ├── sql/init.sql             # MySQL 初始化脚本
 ├── scripts/
-│   ├── start-local-deps.ps1 # 只启动 MySQL/Redis/MinIO，适合 IDEA 展示
-│   ├── start-local.ps1      # 一键启动完整 Docker Compose 环境
-│   └── stop-local.ps1       # 停止本地环境
-├── docker-compose.yml       # Windows 本地 Compose 编排
+│   ├── start-local-deps.ps1 # 可选备用：Docker 方式启动依赖
+│   ├── start-local.ps1      # 可选备用：Docker Compose 启动
+│   └── stop-local.ps1       # 可选备用：停止 Docker Compose
+├── docker-compose.yml       # 可选备用，本次 Windows 原生展示不依赖
 ├── .env.example             # 本地环境变量模板
 └── README.md
 ```
@@ -95,33 +95,24 @@ coco-/
 ### 前置环境
 
 - Windows 10/11
-- Docker Desktop，并启用 Linux containers
 - PowerShell 5+ 或 PowerShell 7+
-
-如果要在 IDEA 中直接运行源码，还需要：
-
 - JDK 17
 - Maven 3.9+
 - Node.js 20+
 - IntelliJ IDEA
+- Docker Desktop（仅用于 Redis 容器）
+- MySQL 8/9 Windows 原生服务
+- MinIO Windows 版 `minio.exe`
 
-### 方式一：完整 Docker Compose 启动
+### 当前推荐部署方式
 
-适合快速运行完整系统，不需要在 IDEA 中分别启动前后端。
+当前项目按 Windows 本地展示环境运行：
 
-在项目根目录执行：
-
-```powershell
-.\scripts\start-local.ps1
-```
-
-脚本会启动：
-
-- MySQL
-- Redis
-- MinIO
-- Spring Boot 后端容器
-- React + Nginx 前端容器
+- MySQL：Windows 原生服务，端口 `3306`
+- Redis：Docker 容器，端口 `6379`
+- MinIO：Windows 原生 `minio.exe`，API 端口 `9000`，Console 端口 `9001`
+- 后端：IDEA 直接运行 `MallApplication`
+- 前端：`npm run dev`，端口 `5173`
 
 访问地址：
 
@@ -132,54 +123,66 @@ coco-/
 | 商品接口 | `http://localhost:8080/api/products` |
 | MinIO Console | `http://localhost:9001` |
 
+### 启动 Redis
+
+```powershell
+docker start mall-local-redis-1
+docker exec mall-local-redis-1 redis-cli ping
+```
+
+如果没有现成 Redis 容器：
+
+```powershell
+docker run -d --name mall-redis -p 6379:6379 redis:7-alpine
+```
+
+### 启动 MinIO
+
+MinIO 服务窗口需要保持打开：
+
+```powershell
+$env:MINIO_ROOT_USER="minioadmin"
+$env:MINIO_ROOT_PASSWORD="minioadmin"
+& "C:\minio\minio.exe" server "C:\minio\data" --address ":9000" --console-address ":9001"
+```
+
 MinIO 默认账号：
 
 | 用户名 | 密码 |
 |---|---|
 | `minioadmin` | `minioadmin` |
 
-### 方式二：只启动依赖，IDEA 启动源码
-
-这是课堂展示、答辩演示和本地开发推荐方式。
-
-在 IDEA 底部 `Terminal` 或项目根目录 PowerShell 执行：
+`mall-media` bucket 需要设置为公开只读：
 
 ```powershell
-.\scripts\start-local-deps.ps1
+& "C:\minio\mc.exe" alias set local http://127.0.0.1:9000 minioadmin minioadmin
+& "C:\minio\mc.exe" anonymous set download local/mall-media
 ```
 
-该脚本只启动：
+### 初始化 MySQL
 
-- MySQL：`localhost:3306`
-- Redis：`localhost:6379`
-- MinIO：`http://localhost:9000`
-- MinIO Console：`http://localhost:9001`
+MySQL 使用 Windows 原生服务，后端默认连接 `localhost:3306`。首次安装后创建数据库和项目用户：
 
-后端和前端按下面的 IDEA 方式启动。
-
-## IDEA 展示和启动
-
-### 打开项目
-
-用 IntelliJ IDEA 打开项目根目录：
-
-```text
-C:\Users\Administrator\Desktop\新建文件夹 (3)
+```sql
+CREATE DATABASE mall CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'mall'@'localhost' IDENTIFIED BY '<本机数据库密码>';
+CREATE USER 'mall'@'%' IDENTIFIED BY '<本机数据库密码>';
+GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'localhost';
+GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'%';
+FLUSH PRIVILEGES;
 ```
 
-不要只打开 `backend` 或 `frontend` 子目录，否则项目结构展示不完整。
-
-### 启动依赖
-
-打开 Docker Desktop 后，在 IDEA 底部 `Terminal` 执行：
+导入初始数据：
 
 ```powershell
-.\scripts\start-local-deps.ps1
+cmd /c """C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe"" --default-character-set=utf8mb4 -uroot -p -P3306 mall < sql\init.sql"
 ```
 
-### 启动后端
+### IDEA 启动后端
 
-打开后端主类：
+用 IntelliJ IDEA 打开项目根目录，不要只打开 `backend` 或 `frontend` 子目录。
+
+后端主类：
 
 ```text
 backend/src/main/java/com/mall/MallApplication.java
@@ -193,7 +196,11 @@ backend/src/main/java/com/mall/MallApplication.java
 | Main class | `com.mall.MallApplication` |
 | Working directory | 项目根目录或 `backend` 均可 |
 
-现在后端默认就是 Windows 本地配置，不需要额外设置 Spring profile。
+后端不需要额外 Spring profile。IDEA Run Configuration 推荐配置环境变量：
+
+```text
+DB_HOST=localhost;DB_PORT=3306;DB_NAME=mall;DB_USERNAME=mall;DB_PASSWORD=<本机数据库密码>;REDIS_HOST=localhost;REDIS_PORT=6379;REDIS_PASSWORD=;MINIO_ENDPOINT=http://localhost:9000;MINIO_PUBLIC_URL=http://localhost:9000/mall-media;MINIO_ACCESS_KEY=minioadmin;MINIO_SECRET_KEY=minioadmin;MINIO_BUCKET=mall-media;MANAGEMENT_HEALTH_MAIL_ENABLED=false
+```
 
 启动成功后验证：
 
@@ -202,7 +209,7 @@ http://localhost:8080/actuator/health
 http://localhost:8080/api/products
 ```
 
-### 启动前端
+### IDEA 启动前端
 
 第一次启动前端前，在 IDEA 底部 `Terminal` 执行：
 
@@ -230,61 +237,43 @@ http://localhost:5173
 
 ### 推荐演示顺序
 
-1. 打开 Docker Desktop
-2. IDEA 打开项目根目录
-3. IDEA Terminal 执行 `.\scripts\start-local-deps.ps1`
-4. IDEA 启动 `MallApplication`
-5. IDEA 启动前端 npm `dev`
-6. 浏览器打开 `http://localhost:5173`
-7. 使用 `admin` / `admin123` 登录后台
+1. 确认 Windows MySQL 服务已启动，端口为 `3306`
+2. 打开 Docker Desktop，启动 Redis 容器
+3. 启动 Windows MinIO，并确认 `mall-media` bucket 可公开读取
+4. IDEA 打开项目根目录
+5. IDEA 启动 `MallApplication`
+6. IDEA 启动前端 npm `dev`
+7. 浏览器打开 `http://localhost:5173`
+8. 使用 `admin` / `admin123` 登录后台
 
 ## 常用操作
 
 ### 停止服务
 
-停止后端和前端：
-
-- IDEA 启动的服务：点击 IDEA Run 窗口停止按钮
-- Docker Compose 启动的完整环境：执行停止脚本
-
-保留 MySQL/MinIO 数据：
-
-```powershell
-.\scripts\stop-local.ps1
-```
-
-删除 MySQL/MinIO 数据卷，下一次启动会重新导入 `sql/init.sql`：
-
-```powershell
-.\scripts\stop-local.ps1 -WithData
-```
+- 后端和前端：点击 IDEA Run 窗口停止按钮
+- MinIO：关闭运行 `minio.exe` 的 PowerShell 窗口，或按 `Ctrl+C`
+- Redis：`docker stop mall-local-redis-1`
+- MySQL：通常保持 Windows 服务运行即可，需要停止时在 Windows 服务管理器中停止 MySQL 服务
 
 ### 查看容器状态
 
+当前只需要关注 Redis 容器：
+
 ```powershell
-docker compose ps
+docker ps
 ```
 
 ### 查看日志
 
 ```powershell
-docker compose logs -f mysql
-docker compose logs -f redis
-docker compose logs -f minio
-docker compose logs -f backend
-docker compose logs -f frontend
+docker logs -f mall-local-redis-1
 ```
 
 ### 修改端口、密码和邮箱配置
 
-首次运行脚本时会自动从 `.env.example` 复制 `.env`。本地端口、数据库密码、JWT 密钥、MinIO 密钥都在 `.env` 中配置。
+`.env.example` 提供本地变量示例，`.env` 是本机私有配置，不提交到 Git。
 
-`.env` 是本机私有配置，不提交到 Git。
-
-需要注意：
-
-- 使用 `.\scripts\start-local.ps1` 或 `docker compose up` 启动完整环境时，Docker Compose 会自动读取 `.env`。
-- 使用 IDEA 直接运行后端时，Spring Boot 不会自动读取项目根目录的 `.env`；需要在 IDEA 后端 Run Configuration 的 `Environment variables` 里手动配置，或配置为 Windows 系统环境变量。
+使用 IDEA 直接运行后端时，Spring Boot 不会自动读取项目根目录的 `.env`；需要在 IDEA 后端 Run Configuration 的 `Environment variables` 中配置，或配置为 Windows 系统环境变量。
 
 默认端口：
 
@@ -297,29 +286,22 @@ docker compose logs -f frontend
 | MinIO API | `9000` |
 | MinIO Console | `9001` |
 
-端口被占用时，修改 `.env` 后重新启动：
-
-```powershell
-docker compose up -d
-```
-
 常用环境变量：
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|
-| `MYSQL_ROOT_PASSWORD` | `root123456` | MySQL root 密码，仅 Docker Compose 初始化 MySQL 时使用 |
 | `DB_NAME` | `mall` | 数据库名 |
 | `DB_USERNAME` | `mall` | 后端连接 MySQL 的用户名 |
-| `DB_PASSWORD` | `mall` | 后端连接 MySQL 的密码 |
-| `MYSQL_PORT` | `3306` | MySQL 暴露到 Windows 的端口 |
-| `REDIS_PORT` | `6379` | Redis 暴露到 Windows 的端口 |
-| `MINIO_API_PORT` | `9000` | MinIO API 端口 |
-| `MINIO_CONSOLE_PORT` | `9001` | MinIO 控制台端口 |
-| `BACKEND_PORT` | `8080` | 后端端口 |
-| `FRONTEND_PORT` | `5173` | 前端端口 |
+| `DB_PASSWORD` | `mall` | 后端连接 MySQL 的密码，实际本机密码建议只写在 IDEA 环境变量里 |
+| `DB_HOST` | `localhost` | MySQL 地址 |
+| `DB_PORT` | `3306` | MySQL 端口 |
+| `REDIS_HOST` | `localhost` | Redis 地址 |
+| `REDIS_PORT` | `6379` | Redis 端口 |
+| `MINIO_ENDPOINT` | `http://localhost:9000` | MinIO API 地址 |
 | `MINIO_ACCESS_KEY` | `minioadmin` | MinIO 用户名 |
 | `MINIO_SECRET_KEY` | `minioadmin` | MinIO 密码 |
 | `MINIO_BUCKET` | `mall-media` | MinIO bucket 名称 |
+| `MINIO_PUBLIC_URL` | `http://localhost:9000/mall-media` | 文件公开访问前缀 |
 | `JWT_SECRET` | `local-development-jwt-secret-change-before-production` | JWT 签名密钥 |
 | `MAIL_HOST` | `smtp.example.com` | SMTP 服务器地址 |
 | `MAIL_PORT` | `587` | SMTP 端口 |
@@ -359,17 +341,19 @@ MAIL_PASSWORD=163邮箱客户端授权码
 
 ### 后端连不上 MySQL
 
-先确认依赖容器已启动：
+先确认 Windows MySQL 服务已启动，并监听 `3306`：
 
 ```powershell
-docker compose ps
+netstat -ano | findstr ":3306"
 ```
 
-再确认 MySQL 端口没有被本机其他服务占用。默认后端连接：
+默认后端连接：
 
 ```text
 jdbc:mysql://localhost:3306/mall
 ```
+
+再确认 IDEA 后端环境变量中的 `DB_USERNAME` 和 `DB_PASSWORD` 与本机 MySQL 用户一致。
 
 ### 前端接口请求失败
 
@@ -401,8 +385,8 @@ http://localhost:9000/mall-media
 
 如需真实邮箱验证码：
 
-- Docker Compose 完整启动：修改 `.env` 里的 `MAIL_*` 配置后重启后端容器。
 - IDEA 直接启动后端：在后端 Run Configuration 的 `Environment variables` 中配置 `MAIL_*`。
+- `MAIL_PASSWORD` 应填写邮箱 SMTP 授权码，不是邮箱登录密码。
 
 ```text
 MAIL_HOST
@@ -413,14 +397,15 @@ MAIL_PASSWORD
 
 ### 修改 `sql/init.sql` 后数据没变化
 
-MySQL 初始化脚本只在数据卷首次创建时执行。需要清空数据卷后重新启动：
+当前 MySQL 是 Windows 原生服务，修改 `sql/init.sql` 后需要手动重新导入，或先清空对应业务表后再导入。
+
+导入时必须使用 `utf8mb4`：
 
 ```powershell
-.\scripts\stop-local.ps1 -WithData
-.\scripts\start-local-deps.ps1
+cmd /c """C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe"" --default-character-set=utf8mb4 -uroot -p -P3306 mall < sql\init.sql"
 ```
 
-如果前端商品、分类显示为 `æ— çº¿...` 这类乱码，说明旧数据卷曾经用错误客户端编码导入过数据。同样执行上面的 `-WithData` 清空数据卷后重启即可；本项目的 Docker 初始化脚本会使用 `mysql --default-character-set=utf8mb4` 导入 `sql/init.sql`。
+如果前端商品、分类显示为 `æ— çº¿...` 这类乱码，说明数据曾经用错误客户端编码导入过。需要清理旧数据后，使用上面的 `--default-character-set=utf8mb4` 命令重新导入。
 
 ## Windows 原生依赖部署总结
 
