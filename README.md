@@ -69,7 +69,6 @@ coco-/
 │           ├── assets/js/app.js
 │           └── WEB-INF/web.xml
 ├── sql/init.sql                         # 数据库结构和初始数据，不改变
-├── scripts/                             # 本地辅助脚本
 └── README.md
 ```
 
