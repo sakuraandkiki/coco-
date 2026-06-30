@@ -1,55 +1,39 @@
 # XX 电子商务系统
 
-这是一个面向 Windows 本地部署和 IntelliJ IDEA 展示的电商系统。当前版本已全量重写为：
+这是一个面向 Windows 本地部署、IntelliJ IDEA 演示和课程答辩的电商系统。项目已从原有实现全量重写为 **Maven WebApp + Servlet + JDBC + jQuery + 纯 HTML** 方案，保留原数据库结构，继续使用 `sql/init.sql` 初始化业务表和演示数据。
 
-```text
-服务端：Maven WebApp + Servlet + JDBC
-前端：纯 HTML + CSS + jQuery
-数据库：MySQL，沿用原 `sql/init.sql` 数据库结构
-缓存：Redis，用于验证码缓存、发送冷却和商品查询缓存
-对象存储：MinIO，可用于商品媒体文件
-运行容器：Tomcat 10+
-```
+## 1. 项目介绍
 
-## 功能模块
+### 1.1 项目目标
 
-用户端：
+本项目实现一个完整的 B2C 电商系统，支持普通用户浏览商品、注册登录、加入购物车、结算下单、查看订单；支持管理员进入后台维护商品、分类、广告、订单和用户数据。
 
-- 首页广告、分类和推荐商品展示
-- 商品列表、分类筛选、关键词搜索
-- 商品详情、商品资料、规格参数展示
-- 登录、注册、退出登录
-- 购物车添加、修改数量、删除
-- 结算下单、订单列表、订单详情、模拟支付、取消订单
+项目重点是本地可运行、可展示、可讲解：
 
-管理端：
+- 使用传统 WebApp 方式部署到 Tomcat，符合课程中 Servlet/WebApp 的展示要求。
+- 使用 MySQL 保存核心业务数据，数据库表结构沿用 `sql/init.sql`。
+- 使用 Redis 保存邮箱验证码、验证码发送冷却和商品查询缓存。
+- 使用 MinIO 作为对象存储服务，可用于商品图片、视频等媒体文件。
+- 前端使用 HTML、CSS、jQuery 实现单页交互，普通用户和管理员登录后看到不同页面。
 
-- 商品管理：新增、编辑、下架、资料维护
-- 分类管理：新增、编辑、禁用
-- 广告管理：新增、编辑、禁用
-- 订单管理：查看订单、修改订单状态
-- 用户管理：查看用户、启用/禁用用户
-
-默认管理员：
-
-| 用户名 | 密码 |
-|---|---|
-| `admin` | `admin123` |
-
-## 技术栈
+### 1.2 当前技术栈
 
 | 层级 | 技术 |
 |---|---|
-| 前端 | 纯 HTML + CSS + jQuery |
+| 前端 | HTML + CSS + jQuery |
 | 后端 | Maven WebApp + Jakarta Servlet |
 | 数据访问 | JDBC + MySQL Connector/J |
-| 登录态 | HttpSession |
-| 密码校验 | BCrypt |
-| 数据库 | MySQL 8/9 |
+| JSON 序列化 | Gson |
+| 登录状态 | HttpSession |
+| 密码处理 | BCrypt |
+| 邮箱验证码 | Jakarta Mail + SMTP |
 | 缓存 | Redis 7 |
+| 对象存储 | MinIO |
+| 数据库 | MySQL 8/9 |
 | 运行容器 | Tomcat 10+ |
+| 开发工具 | IntelliJ IDEA |
 
-## 仓库结构
+### 1.3 目录结构
 
 ```text
 coco-/
@@ -61,146 +45,324 @@ coco-/
 │       │   ├── servlet/MallServlet.java
 │       │   └── util/
 │       │       ├── Db.java
+│       │       ├── MailClient.java
+│       │       ├── RedisClient.java
 │       │       └── Web.java
-│       ├── resources/db.properties      # 默认数据库连接，可被环境变量覆盖
+│       ├── resources/db.properties      # 默认配置，可被环境变量覆盖
 │       └── webapp/
-│           ├── index.html               # jQuery 单页界面
+│           ├── index.html               # 前端单页入口
 │           ├── assets/css/app.css
 │           ├── assets/js/app.js
 │           └── WEB-INF/web.xml
-├── sql/init.sql                         # 数据库结构和初始数据，不改变
+├── docs/
+│   ├── defense-draft.md                 # 答辩草稿
+│   └── work-memory.md                   # 项目工作记忆
+├── sql/init.sql                         # 数据库建表和初始数据
+├── AGENTS.md                            # Codex/项目上下文备忘
 └── README.md
 ```
 
-## 数据库
+## 2. 功能模块
 
-数据库结构不改，继续使用 `sql/init.sql`。
+### 2.1 普通用户端
 
-本机 MySQL 推荐配置：
+普通用户通过邮箱验证码注册，注册后使用用户名和密码登录。用户登录后看到用户端页面。
+
+- 首页：广告展示、推荐分类、推荐商品。
+- 商品列表：按分类、关键词查看商品。
+- 商品详情：查看商品基础信息、媒体、子信息、规格参数和 SKU。
+- 购物车：添加商品、修改数量、删除商品。
+- 结算下单：从购物车生成订单。
+- 订单中心：查看订单列表、订单详情、模拟支付、取消订单。
+- 账号功能：邮箱验证码注册、登录、退出登录。
+
+### 2.2 管理员端
+
+管理员使用固定账号登录。管理员登录后进入后台页面，不展示普通用户购物页面。
+
+默认管理员：
+
+| 用户名 | 密码 |
+|---|---|
+| `admin` | `admin123` |
+
+后台功能：
+
+- 商品分类管理：新增、编辑、禁用分类；支持按名称、父级 ID、状态筛选。
+- 商品管理：新增、编辑、下架商品；支持按名称、ID、库存、价格、状态筛选。
+- 商品资料管理：维护商品子信息 1、商品子信息 2、SKU。
+- 商品媒体管理：维护商品图片和视频，前端详情页支持视频播放。
+- 广告管理：新增、编辑、禁用广告；支持按标题、广告分类、状态筛选。
+- 广告类别管理：维护广告所属类别。
+- 订单管理：查看订单，修改订单状态。
+- 用户管理：查看用户，启用/禁用用户；支持按角色、用户名、ID 筛选。
+
+### 2.3 登录与权限设计
+
+- 未登录用户：只能访问首页、商品列表、商品详情、登录/注册。
+- 普通用户：可以访问购物车、结算、订单等用户功能。
+- 管理员：可以访问 `/api/admin/*` 后台接口和后台页面。
+- 后端通过 `HttpSession` 保存登录状态，通过角色判断是否允许访问后台接口。
+
+## 3. 数据库设计
+
+数据库结构不改变，沿用 `sql/init.sql`。核心表如下：
+
+| 表名 | 说明 |
+|---|---|
+| `t_user` | 用户信息，区分普通用户和管理员角色 |
+| `t_product_category` | 商品分类 |
+| `t_product` | 商品主表 |
+| `t_product_info1` | 商品子信息 1 |
+| `t_product_info2` | 商品子信息 2 |
+| `t_product_sku` | 商品 SKU 信息 |
+| `t_product_media` | 商品媒体，支持图片和视频 |
+| `t_cart_item` | 购物车明细 |
+| `t_order` | 订单主表 |
+| `t_order_item` | 订单明细 |
+| `t_ad_category` | 广告分类 |
+| `t_advertisement` | 广告信息 |
+
+注意：MySQL 初始化和手动导入必须使用 `utf8mb4`，否则中文数据可能在写入时就变成乱码。
+
+## 4. 本地部署总览
+
+推荐部署方式：
 
 ```text
-Host: localhost
-Port: 3306
-Database: mall
-Username: mall
-Password: 使用本机实际密码
-Charset: utf8mb4
+Windows
+├── Docker Desktop
+│   └── Redis 容器：localhost:6379
+├── MySQL 原生安装：localhost:3306
+├── MinIO 原生 exe：localhost:9000 / 9001
+└── Tomcat 10.1.x + IDEA：部署 mall-webapp
 ```
 
-## Redis
+## 5. 一步一步部署
 
-当前版本需要 Redis，后端用途：
+### 5.1 安装 Docker Desktop
 
-- 注册验证码缓存：`verify:register:{email}`，5 分钟过期
-- 验证码发送冷却：`verify:cooldown:{email}`，60 秒过期
-- 商品列表缓存：`products:list:*`，60 秒过期
-- 商品详情缓存：`products:detail:{id}`，60 秒过期
-
-本机推荐：
-
-```text
-Host: localhost
-Port: 6379
-Password: 空
-```
-
-Docker 启动：
+1. 下载并安装 Docker Desktop：<https://www.docker.com/products/docker-desktop/>
+2. 安装完成后启动 Docker Desktop。
+3. 在 PowerShell 验证：
 
 ```powershell
-docker start mall-local-redis-1
+docker version
 ```
 
-如果没有现成容器：
+能看到 Client 和 Server 信息说明 Docker Desktop 正常。
+
+### 5.2 部署 Redis
+
+如果本机没有 Redis 容器，执行：
 
 ```powershell
 docker run -d --name mall-redis -p 6379:6379 redis:7-alpine
 ```
 
-验证：
+如果容器已经存在，执行：
 
 ```powershell
-docker exec -it mall-local-redis-1 redis-cli ping
+docker start mall-redis
 ```
 
-返回 `PONG` 即可。
+验证 Redis：
 
-首次初始化：
+```powershell
+docker exec -it mall-redis redis-cli ping
+```
+
+返回：
+
+```text
+PONG
+```
+
+当前 Redis 不设置密码，后端配置为：
+
+```text
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+```
+
+### 5.3 安装和配置 MySQL
+
+1. 下载 MySQL Community Server：<https://dev.mysql.com/downloads/mysql/>
+2. 安装时选择 Server 类型，端口建议使用 `3306`。
+3. 设置 root 密码，并记住该密码。
+4. 如果命令行不能直接使用 `mysql`，使用完整路径执行，例如：
+
+```powershell
+& "C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe" -uroot -p -P3306
+```
+
+进入 MySQL 后创建数据库和用户：
 
 ```sql
 CREATE DATABASE mall CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'mall'@'localhost' IDENTIFIED BY '<本机数据库密码>';
-CREATE USER 'mall'@'%' IDENTIFIED BY '<本机数据库密码>';
+CREATE USER 'mall'@'localhost' IDENTIFIED BY '<你的MySQL密码>';
+CREATE USER 'mall'@'%' IDENTIFIED BY '<你的MySQL密码>';
+GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'localhost';
+GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'%';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+回到项目根目录导入初始化 SQL：
+
+```powershell
+cd "C:\Users\Administrator\Desktop\新建文件夹 (4)"
+cmd /c """C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe"" --default-character-set=utf8mb4 -uroot -p -P3306 mall < sql\init.sql"
+```
+
+验证表是否导入成功：
+
+```powershell
+& "C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe" --default-character-set=utf8mb4 -uroot -p -P3306 mall
+```
+
+进入 MySQL 后执行：
+
+```sql
+SHOW TABLES;
+SELECT username, role FROM t_user;
+SELECT name FROM t_product_category LIMIT 5;
+```
+
+如果已经导入过，再次导入出现 `Duplicate entry`，说明数据已存在。需要重置时执行：
+
+```sql
+DROP DATABASE mall;
+CREATE DATABASE mall CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'localhost';
 GRANT ALL PRIVILEGES ON mall.* TO 'mall'@'%';
 FLUSH PRIVILEGES;
 ```
 
-导入初始数据：
+然后重新导入 `sql/init.sql`。
+
+### 5.4 部署 MinIO
+
+1. 创建目录：
 
 ```powershell
-cmd /c """C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe"" --default-character-set=utf8mb4 -uroot -p -P3306 mall < sql\init.sql"
+mkdir C:\minio\data
 ```
 
-验证：
+2. 下载 Windows 版 MinIO Server：<https://min.io/download>
+3. 将下载到的 exe 放到 `C:\minio\minio.exe`。如果文件名类似 `minio.windows-amd64.RELEASE.xxx.exe`，可以改名为 `minio.exe`。
+4. 启动 MinIO：
 
-```sql
-SHOW TABLES;
-SELECT username FROM t_user;
+```powershell
+$env:MINIO_ROOT_USER="minioadmin"
+$env:MINIO_ROOT_PASSWORD="minioadmin"
+& "C:\minio\minio.exe" server "C:\minio\data" --address ":9000" --console-address ":9001"
 ```
 
-## 后端配置
-
-默认配置文件：
+5. 浏览器打开 MinIO 控制台：
 
 ```text
-backend/src/main/resources/db.properties
+http://127.0.0.1:9001
 ```
 
-内容：
-
-```properties
-db.url=jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-db.username=mall
-db.password=mall
-redis.host=localhost
-redis.port=6379
-redis.password=
-```
-
-推荐不要把真实密码写入 Git。Tomcat / IDEA Run Configuration 中配置环境变量覆盖：
+登录账号：
 
 ```text
-DB_USERNAME=mall;DB_PASSWORD=<本机数据库密码>;REDIS_HOST=localhost;REDIS_PORT=6379;REDIS_PASSWORD=
+minioadmin / minioadmin
 ```
 
-如果需要完整覆盖连接：
+6. 创建 Bucket：
 
 ```text
-DB_URL=jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true;DB_USERNAME=mall;DB_PASSWORD=<本机数据库密码>;REDIS_HOST=localhost;REDIS_PORT=6379;REDIS_PASSWORD=
+mall-media
 ```
 
-## 启动方式
+7. 下载 MinIO Client `mc.exe` 并放到 `C:\minio\mc.exe`，然后设置公开下载权限：
 
-### IDEA + Tomcat
+```powershell
+& "C:\minio\mc.exe" alias set local http://127.0.0.1:9000 minioadmin minioadmin
+& "C:\minio\mc.exe" anonymous set download local/mall-media
+& "C:\minio\mc.exe" anonymous get local/mall-media
+```
 
-1. 用 IntelliJ IDEA 打开项目根目录。
-2. 确认本机 MySQL 已启动，数据库 `mall` 已初始化。
-3. 确认 Redis 已启动，`redis-cli ping` 返回 `PONG`。
-4. 配置 Tomcat 10+。
-5. 在 Deployment 中添加 `backend:war exploded`。
-6. 在 Tomcat Run Configuration 中设置数据库和 Redis 环境变量。
-7. 启动 Tomcat。
-8. 浏览器访问：
+### 5.5 配置邮箱验证码
+
+普通用户注册需要真实邮箱验证码。以 QQ 邮箱为例，在 IDEA Tomcat 环境变量中加入：
+
+```text
+MAIL_HOST=smtp.qq.com;MAIL_PORT=587;MAIL_USERNAME=你的QQ邮箱@qq.com;MAIL_PASSWORD=QQ邮箱SMTP授权码;MAIL_FROM=你的QQ邮箱@qq.com;MAIL_STARTTLS=true;MAIL_SSL=false
+```
+
+说明：
+
+- `MAIL_USERNAME` 是完整邮箱地址。
+- `MAIL_PASSWORD` 不是 QQ 登录密码，而是邮箱后台生成的 SMTP 授权码。
+- 如果使用 465 SSL 端口，则改为：
+
+```text
+MAIL_HOST=smtp.qq.com;MAIL_PORT=465;MAIL_USERNAME=你的QQ邮箱@qq.com;MAIL_PASSWORD=QQ邮箱SMTP授权码;MAIL_FROM=你的QQ邮箱@qq.com;MAIL_STARTTLS=false;MAIL_SSL=true
+```
+
+### 5.6 部署网站到 Tomcat
+
+1. 安装 JDK 17。
+2. 安装 Tomcat 10.1.x，例如：
+
+```text
+G:\tomcat10\apache-tomcat-10.1.56
+```
+
+3. 用 IntelliJ IDEA 打开项目根目录：
+
+```text
+C:\Users\Administrator\Desktop\新建文件夹 (4)
+```
+
+4. 在 IDEA 中确认 Maven 已导入 `backend/pom.xml`。
+5. 点击右上角运行配置，创建 **Tomcat Server / Local** 配置。
+6. Server 页面选择 Tomcat Home：
+
+```text
+G:\tomcat10\apache-tomcat-10.1.56
+```
+
+7. Deployment 页面添加：
+
+```text
+mall-webapp:war exploded
+```
+
+8. Application context 设置为：
+
+```text
+/mall-webapp
+```
+
+9. Startup/Connection 或 Environment variables 中加入：
+
+```text
+DB_URL=jdbc:mysql://localhost:3306/mall?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true;DB_USERNAME=mall;DB_PASSWORD=<你的MySQL密码>;REDIS_HOST=localhost;REDIS_PORT=6379;REDIS_PASSWORD=;MAIL_HOST=smtp.qq.com;MAIL_PORT=587;MAIL_USERNAME=你的QQ邮箱@qq.com;MAIL_PASSWORD=QQ邮箱SMTP授权码;MAIL_FROM=你的QQ邮箱@qq.com;MAIL_STARTTLS=true;MAIL_SSL=false
+```
+
+10. 启动 Tomcat。
+11. 浏览器访问：
 
 ```text
 http://localhost:8080/mall-webapp/
 ```
 
-如果 IDEA 部署上下文不是 `mall-webapp`，以 IDEA Deployment 中显示的 Application context 为准。
+### 5.7 修改代码后如何重新部署
 
-### Maven 打包
+如果改了 Java 代码、HTML、CSS、JS：
 
-本机安装 Maven 后：
+1. 停止 Tomcat。
+2. IDEA 重新 Build Project，或重新运行 Tomcat 配置。
+3. 确认 Deployment 是 `mall-webapp:war exploded`。
+4. 启动 Tomcat。
+5. 浏览器强制刷新：`Ctrl + F5`。
+
+如果使用本机 Maven 命令打包：
 
 ```powershell
 cd backend
@@ -210,96 +372,92 @@ mvn clean package
 生成：
 
 ```text
-backend/target/mall-webapp.war
+backend\target\mall-webapp.war
 ```
 
-将 WAR 放入 Tomcat `webapps` 目录即可部署。
+再将 WAR 部署到 Tomcat 的 `webapps` 目录。
 
-## 页面说明
+## 6. 常用检查命令
 
-当前前端是 `backend/src/main/webapp/index.html` 中的 jQuery 单页应用：
-
-- `#/`：首页
-- `#/products`：商品列表
-- `#/products/{id}`：商品详情
-- `#/cart`：购物车
-- `#/checkout`：结算
-- `#/orders`：我的订单
-- `#/orders/{id}`：订单详情
-- `#/admin/products`：商品管理
-- `#/admin/categories`：分类管理
-- `#/admin/ads`：广告管理
-- `#/admin/orders`：订单管理
-- `#/admin/users`：用户管理
-
-## 接口说明
-
-统一 Servlet：
-
-```text
-backend/src/main/java/com/mall/web/servlet/MallServlet.java
-```
-
-接口前缀：
-
-```text
-/api
-```
-
-主要接口：
-
-| 模块 | 接口 |
-|---|---|
-| 用户 | `/api/users/login`、`/api/users/register`、`/api/users/logout` |
-| 商品 | `/api/products`、`/api/products/{id}` |
-| 分类 | `/api/categories` |
-| 广告 | `/api/ads` |
-| 购物车 | `/api/cart`、`/api/cart/{id}` |
-| 订单 | `/api/orders`、`/api/orders/checkout`、`/api/orders/{id}` |
-| 后台商品 | `/api/admin/products` |
-| 后台分类 | `/api/admin/categories` |
-| 后台广告 | `/api/admin/ads` |
-| 后台订单 | `/api/admin/orders` |
-| 后台用户 | `/api/admin/users` |
-
-## 常见问题
-
-### 登录失败
-
-确认：
-
-- `t_user` 表存在 `admin`
-- Tomcat 环境变量中的 `DB_USERNAME`、`DB_PASSWORD` 正确
-- MySQL 监听 `localhost:3306`
-
-### 中文乱码
-
-数据库初始化和导入必须使用 `utf8mb4`。手动导入时必须带：
-
-```text
---default-character-set=utf8mb4
-```
-
-### jQuery 无法加载
-
-当前页面通过 CDN 加载 jQuery：
-
-```text
-https://code.jquery.com/jquery-3.7.1.min.js
-```
-
-如果演示环境不能联网，需要下载 `jquery-3.7.1.min.js` 放到 `backend/src/main/webapp/assets/js/`，并修改 `index.html` 中的脚本地址。
-
-### 回退到重写前版本
-
-重写前已打标签：
-
-```text
-pre-webapp-rewrite-20260630
-```
-
-如需回退：
+### 6.1 检查 MySQL
 
 ```powershell
-git reset --hard pre-webapp-rewrite-20260630
+& "C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe" --default-character-set=utf8mb4 -umall -p -P3306 mall
+```
+
+### 6.2 检查 Redis
+
+```powershell
+docker ps
+docker exec -it mall-redis redis-cli ping
+```
+
+### 6.3 检查 MinIO
+
+```text
+http://127.0.0.1:9001
+```
+
+### 6.4 检查网站
+
+```text
+http://localhost:8080/mall-webapp/
+```
+
+## 7. 常见问题
+
+### 7.1 `mysql` 命令无法识别
+
+说明 MySQL 的 `bin` 目录没有加入 PATH。使用完整路径：
+
+```powershell
+& "C:\Program Files\MySQL\MySQL Server 9.6\bin\mysql.exe" -uroot -p -P3306
+```
+
+### 7.2 SQL 导入出现重复数据
+
+如果报错：
+
+```text
+Duplicate entry
+```
+
+说明数据库里已经有旧数据。可以删除数据库后重建，再重新导入。
+
+### 7.3 中文乱码
+
+必须保证：
+
+- `sql/init.sql` 使用 UTF-8 编码。
+- 创建数据库时使用 `utf8mb4`。
+- 导入 SQL 时带 `--default-character-set=utf8mb4`。
+- 页面 `<meta charset="UTF-8">` 存在。
+- Tomcat 响应头为 `charset=UTF-8`。
+
+### 7.4 邮箱验证码发送失败
+
+检查：
+
+- `MAIL_USERNAME` 是否为完整邮箱地址。
+- `MAIL_PASSWORD` 是否为 SMTP 授权码。
+- QQ 邮箱是否开启 SMTP 服务。
+- `MAIL_PORT`、`MAIL_STARTTLS`、`MAIL_SSL` 是否匹配。
+- Redis 是否启动，因为验证码存储依赖 Redis。
+
+### 7.5 Tomcat 报不是 TomEE Home
+
+本项目使用普通 Tomcat，不需要 TomEE。IDEA 运行配置应选择 **Tomcat Server / Local**，不要选择 TomEE。
+
+## 8. 项目答辩入口
+
+答辩草稿见：
+
+```text
+docs/defense-draft.md
+```
+
+项目工作记忆见：
+
+```text
+docs/work-memory.md
 ```

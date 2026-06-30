@@ -1,6 +1,7 @@
 package com.mall.web.servlet;
 
 import com.mall.web.util.Db;
+import com.mall.web.util.MailClient;
 import com.mall.web.util.RedisClient;
 import com.mall.web.util.Web;
 import jakarta.servlet.ServletException;
@@ -51,6 +52,7 @@ public class MallServlet extends HttpServlet {
         String method = request.getMethod();
         String path = Optional.ofNullable(request.getPathInfo()).orElse("/");
         try {
+            if (path.startsWith("/admin/")) requireAdmin(request);
             if (path.equals("/session")) session(request, response);
             else if (path.equals("/users/login") && method.equals("POST")) login(request, response);
             else if (path.equals("/users/logout") && method.equals("POST")) logout(request, response);
@@ -70,7 +72,7 @@ public class MallServlet extends HttpServlet {
             else if (path.matches("/orders/\\d+/pay") && method.equals("POST")) orderStatus(pathId(path), 1, request, response);
             else if (path.matches("/orders/\\d+/cancel") && method.equals("POST")) orderStatus(pathId(path), 4, request, response);
             else if (path.equals("/admin/files/upload") && method.equals("POST")) upload(request, response);
-            else if (path.equals("/admin/products") && method.equals("GET")) adminProducts(response);
+            else if (path.equals("/admin/products") && method.equals("GET")) adminProducts(request, response);
             else if (path.equals("/admin/products") && method.equals("POST")) adminSaveProduct(0, request, response);
             else if (path.matches("/admin/products/\\d+") && method.equals("GET")) productDetail(pathId(path), response);
             else if (path.matches("/admin/products/\\d+") && method.equals("PUT")) adminSaveProduct(pathId(path), request, response);
@@ -78,11 +80,20 @@ public class MallServlet extends HttpServlet {
             else if (path.matches("/admin/products/\\d+/media") && method.equals("GET")) adminMedia(pathId(path), response);
             else if (path.matches("/admin/products/\\d+/media") && method.equals("POST")) adminAddMedia(pathId(path), request, response);
             else if (path.matches("/admin/products/\\d+/media/\\d+") && method.equals("DELETE")) adminDeleteMedia(pathIds(path)[1], response);
-            else if (path.equals("/admin/categories") && method.equals("GET")) Web.ok(response, Db.list("SELECT * FROM t_product_category ORDER BY sort_order,id"));
+            else if (path.matches("/admin/products/\\d+/info1") && method.equals("GET")) adminInfo1(pathId(path), response);
+            else if (path.matches("/admin/products/\\d+/info1") && method.equals("POST")) adminAddInfo1(pathId(path), request, response);
+            else if (path.matches("/admin/products/\\d+/info1/\\d+") && method.equals("DELETE")) adminDeleteChild("t_product_info1", pathIds(path)[1], response);
+            else if (path.matches("/admin/products/\\d+/info2") && method.equals("GET")) adminInfo2(pathId(path), response);
+            else if (path.matches("/admin/products/\\d+/info2") && method.equals("POST")) adminAddInfo2(pathId(path), request, response);
+            else if (path.matches("/admin/products/\\d+/info2/\\d+") && method.equals("DELETE")) adminDeleteChild("t_product_info2", pathIds(path)[1], response);
+            else if (path.matches("/admin/products/\\d+/skus") && method.equals("GET")) adminSkus(pathId(path), response);
+            else if (path.matches("/admin/products/\\d+/skus") && method.equals("POST")) adminAddSku(pathId(path), request, response);
+            else if (path.matches("/admin/products/\\d+/skus/\\d+") && method.equals("DELETE")) adminDeleteChild("t_product_sku", pathIds(path)[1], response);
+            else if (path.equals("/admin/categories") && method.equals("GET")) adminCategories(request, response);
             else if (path.equals("/admin/categories") && method.equals("POST")) adminSaveCategory(0, request, response);
             else if (path.matches("/admin/categories/\\d+") && method.equals("PUT")) adminSaveCategory(pathId(path), request, response);
             else if (path.matches("/admin/categories/\\d+") && method.equals("DELETE")) softDelete("t_product_category", pathId(path), response);
-            else if (path.equals("/admin/ads") && method.equals("GET")) Web.ok(response, Db.list("SELECT a.*,c.name category_name FROM t_advertisement a LEFT JOIN t_ad_category c ON a.category_id=c.id ORDER BY a.sort_order,a.id"));
+            else if (path.equals("/admin/ads") && method.equals("GET")) adminAds(request, response);
             else if (path.equals("/admin/ads") && method.equals("POST")) adminSaveAd(0, request, response);
             else if (path.matches("/admin/ads/\\d+") && method.equals("PUT")) adminSaveAd(pathId(path), request, response);
             else if (path.matches("/admin/ads/\\d+") && method.equals("DELETE")) softDelete("t_advertisement", pathId(path), response);
@@ -90,7 +101,7 @@ public class MallServlet extends HttpServlet {
             else if (path.equals("/admin/ads/categories") && method.equals("POST")) createAdCategory(request, response);
             else if (path.equals("/admin/orders") && method.equals("GET")) Web.ok(response, Db.list("SELECT o.*,u.username FROM t_order o LEFT JOIN t_user u ON o.user_id=u.id ORDER BY o.id DESC"));
             else if (path.matches("/admin/orders/\\d+/status") && method.equals("PUT")) adminOrderStatus(pathId(path), request, response);
-            else if (path.equals("/admin/users") && method.equals("GET")) Web.ok(response, Db.list("SELECT id,username,phone,email,role,status,created_at,updated_at FROM t_user ORDER BY id DESC"));
+            else if (path.equals("/admin/users") && method.equals("GET")) adminUsers(request, response);
             else if (path.matches("/admin/users/\\d+/status") && method.equals("PUT")) adminUserStatus(pathId(path), request, response);
             else Web.fail(response, 404, "接口不存在");
         } catch (AuthException exception) {
@@ -103,15 +114,26 @@ public class MallServlet extends HttpServlet {
 
     private void login(HttpServletRequest request, HttpServletResponse response) throws Exception {
         Map<String, Object> body = Web.body(request);
-        Map<String, Object> user = Db.one("SELECT * FROM t_user WHERE username=?", Web.string(body.get("username")));
-        if (user == null || Web.intValue(user.get("status"), 0) != 1 || !passwordEncoder.matches(Web.string(body.get("password")), Web.string(user.get("password")))) {
-            Web.fail(response, 401, "用户名或密码错误");
+        String username = Web.string(body.get("username"));
+        String password = Web.string(body.get("password"));
+        if ("admin".equals(username) && "admin123".equals(password)) {
+            HttpSession session = request.getSession(true);
+            session.setAttribute("userId", 0L);
+            session.setAttribute("username", "admin");
+            session.setAttribute("role", "ADMIN");
+            Web.ok(response, Map.of("id", 0L, "username", "admin", "role", "ADMIN"));
             return;
         }
-        request.getSession(true).setAttribute("userId", Web.longValue(user.get("id")));
-        request.getSession(true).setAttribute("username", user.get("username"));
-        request.getSession(true).setAttribute("role", user.get("role"));
-        Web.ok(response, Map.of("username", user.get("username"), "role", user.get("role")));
+        Map<String, Object> user = Db.one("SELECT * FROM t_user WHERE username=? AND role='USER'", username);
+        if (user == null || Web.intValue(user.get("status"), 0) != 1 || !passwordEncoder.matches(password, Web.string(user.get("password")))) {
+            Web.fail(response, 401, "不存在此用户或者密码错误");
+            return;
+        }
+        HttpSession session = request.getSession(true);
+        session.setAttribute("userId", Web.longValue(user.get("id")));
+        session.setAttribute("username", user.get("username"));
+        session.setAttribute("role", "USER");
+        Web.ok(response, Map.of("id", user.get("id"), "username", user.get("username"), "role", "USER"));
     }
 
     private void logout(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -138,7 +160,15 @@ public class MallServlet extends HttpServlet {
             Web.fail(response, 400, "用户名已存在");
             return;
         }
+        if (email.isBlank()) {
+            Web.fail(response, 400, "邮箱不能为空");
+            return;
+        }
         String cachedCode = RedisClient.get("verify:register:" + email).orElse("");
+        if (cachedCode.isBlank()) {
+            Web.fail(response, 400, "请先获取邮箱验证码");
+            return;
+        }
         if (!email.isBlank() && !cachedCode.isBlank() && !cachedCode.equals(code)) {
             Web.fail(response, 400, "验证码错误");
             return;
@@ -158,10 +188,15 @@ public class MallServlet extends HttpServlet {
             Web.fail(response, 400, "邮箱不能为空");
             return;
         }
+        if (RedisClient.get("verify:cooldown:" + email).isPresent()) {
+            Web.fail(response, 429, "验证码发送过于频繁，请稍后再试");
+            return;
+        }
         String code = String.valueOf(100000 + new Random().nextInt(900000));
+        MailClient.sendRegisterCode(email, code);
         RedisClient.setex("verify:register:" + email, Duration.ofMinutes(5), code);
         RedisClient.setex("verify:cooldown:" + email, Duration.ofSeconds(60), "1");
-        Web.ok(response, Map.of("sent", true, "expireSeconds", 300, "devCode", code));
+        Web.ok(response, Map.of("sent", true, "expireSeconds", 300));
     }
 
     private void categories(HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -328,8 +363,88 @@ public class MallServlet extends HttpServlet {
         Web.ok(response, true);
     }
 
-    private void adminProducts(HttpServletResponse response) throws Exception {
-        Web.ok(response, Db.list("SELECT p.*,c.name category_name,(SELECT url FROM t_product_media m WHERE m.product_id=p.id ORDER BY sort_order,id LIMIT 1) cover FROM t_product p LEFT JOIN t_product_category c ON p.category_id=c.id ORDER BY p.id DESC"));
+    private void adminProducts(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        StringBuilder sql = new StringBuilder("SELECT p.*,c.name category_name,(SELECT url FROM t_product_media m WHERE m.product_id=p.id ORDER BY sort_order,id LIMIT 1) cover FROM t_product p LEFT JOIN t_product_category c ON p.category_id=c.id WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (!param(request, "id").isBlank()) {
+            sql.append(" AND p.id=?");
+            args.add(param(request, "id"));
+        }
+        if (!param(request, "name").isBlank()) {
+            sql.append(" AND p.name LIKE ?");
+            args.add("%" + param(request, "name") + "%");
+        }
+        if (!param(request, "stock").isBlank()) {
+            sql.append(" AND p.stock=?");
+            args.add(param(request, "stock"));
+        }
+        if (!param(request, "price").isBlank()) {
+            sql.append(" AND p.price=?");
+            args.add(param(request, "price"));
+        }
+        if (!param(request, "status").isBlank()) {
+            sql.append(" AND p.status=?");
+            args.add(param(request, "status"));
+        }
+        sql.append(" ORDER BY p.id DESC");
+        Web.ok(response, Db.list(sql.toString(), args.toArray()));
+    }
+
+    private void adminCategories(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t_product_category WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (!param(request, "name").isBlank()) {
+            sql.append(" AND name LIKE ?");
+            args.add("%" + param(request, "name") + "%");
+        }
+        if (!param(request, "parentId").isBlank()) {
+            sql.append(" AND parent_id=?");
+            args.add(param(request, "parentId"));
+        }
+        if (!param(request, "status").isBlank()) {
+            sql.append(" AND status=?");
+            args.add(param(request, "status"));
+        }
+        sql.append(" ORDER BY sort_order,id");
+        Web.ok(response, Db.list(sql.toString(), args.toArray()));
+    }
+
+    private void adminAds(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        StringBuilder sql = new StringBuilder("SELECT a.*,c.name category_name FROM t_advertisement a LEFT JOIN t_ad_category c ON a.category_id=c.id WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (!param(request, "title").isBlank()) {
+            sql.append(" AND a.title LIKE ?");
+            args.add("%" + param(request, "title") + "%");
+        }
+        if (!param(request, "categoryId").isBlank()) {
+            sql.append(" AND a.category_id=?");
+            args.add(param(request, "categoryId"));
+        }
+        if (!param(request, "status").isBlank()) {
+            sql.append(" AND a.status=?");
+            args.add(param(request, "status"));
+        }
+        sql.append(" ORDER BY a.sort_order,a.id");
+        Web.ok(response, Db.list(sql.toString(), args.toArray()));
+    }
+
+    private void adminUsers(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        StringBuilder sql = new StringBuilder("SELECT id,username,phone,email,role,status,created_at,updated_at FROM t_user WHERE 1=1");
+        List<Object> args = new ArrayList<>();
+        if (!param(request, "id").isBlank()) {
+            sql.append(" AND id=?");
+            args.add(param(request, "id"));
+        }
+        if (!param(request, "username").isBlank()) {
+            sql.append(" AND username LIKE ?");
+            args.add("%" + param(request, "username") + "%");
+        }
+        if (!param(request, "role").isBlank()) {
+            sql.append(" AND role=?");
+            args.add(param(request, "role"));
+        }
+        sql.append(" ORDER BY id DESC");
+        Web.ok(response, Db.list(sql.toString(), args.toArray()));
     }
 
     private void adminSaveProduct(long id, HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -363,6 +478,51 @@ public class MallServlet extends HttpServlet {
         Db.update("DELETE FROM t_product_media WHERE id=?", mediaId);
         if (media != null) {
             clearProductCache(Web.longValue(media.get("product_id")));
+        }
+        Web.ok(response, true);
+    }
+
+    private void adminInfo1(long productId, HttpServletResponse response) throws Exception {
+        Web.ok(response, Db.list("SELECT * FROM t_product_info1 WHERE product_id=? ORDER BY sort_order,id", productId));
+    }
+
+    private void adminAddInfo1(long productId, HttpServletRequest request, HttpServletResponse response) throws Exception {
+        Map<String, Object> body = Web.body(request);
+        long id = Db.insert("INSERT INTO t_product_info1(product_id,image_url,detail_html,sort_order) VALUES(?,?,?,?)",
+                productId, Web.string(body.get("imageUrl")), Web.string(body.get("detailHtml")), Web.intValue(body.get("sortOrder"), 0));
+        clearProductCache(productId);
+        Web.ok(response, Db.one("SELECT * FROM t_product_info1 WHERE id=?", id));
+    }
+
+    private void adminInfo2(long productId, HttpServletResponse response) throws Exception {
+        Web.ok(response, Db.list("SELECT * FROM t_product_info2 WHERE product_id=? ORDER BY sort_order,id", productId));
+    }
+
+    private void adminAddInfo2(long productId, HttpServletRequest request, HttpServletResponse response) throws Exception {
+        Map<String, Object> body = Web.body(request);
+        long id = Db.insert("INSERT INTO t_product_info2(product_id,spec_key,spec_value,sort_order) VALUES(?,?,?,?)",
+                productId, Web.string(body.get("specKey")), Web.string(body.get("specValue")), Web.intValue(body.get("sortOrder"), 0));
+        clearProductCache(productId);
+        Web.ok(response, Db.one("SELECT * FROM t_product_info2 WHERE id=?", id));
+    }
+
+    private void adminSkus(long productId, HttpServletResponse response) throws Exception {
+        Web.ok(response, Db.list("SELECT * FROM t_product_sku WHERE product_id=? ORDER BY id", productId));
+    }
+
+    private void adminAddSku(long productId, HttpServletRequest request, HttpServletResponse response) throws Exception {
+        Map<String, Object> body = Web.body(request);
+        long id = Db.insert("INSERT INTO t_product_sku(product_id,sku_code,spec_desc,price,stock,image,status) VALUES(?,?,?,?,?,?,?)",
+                productId, Web.string(body.get("skuCode")), Web.string(body.get("specDesc")), body.get("price"), Web.intValue(body.get("stock"), 0), Web.string(body.get("image")), Web.intValue(body.get("status"), 1));
+        clearProductCache(productId);
+        Web.ok(response, Db.one("SELECT * FROM t_product_sku WHERE id=?", id));
+    }
+
+    private void adminDeleteChild(String table, long id, HttpServletResponse response) throws Exception {
+        Map<String, Object> row = Db.one("SELECT product_id FROM " + table + " WHERE id=?", id);
+        Db.update("DELETE FROM " + table + " WHERE id=?", id);
+        if (row != null) {
+            clearProductCache(Web.longValue(row.get("product_id")));
         }
         Web.ok(response, true);
     }
@@ -458,9 +618,15 @@ public class MallServlet extends HttpServlet {
         return Arrays.stream(path.split("/")).filter(s -> s.matches("\\d+")).mapToLong(Long::parseLong).toArray();
     }
 
+    private String param(HttpServletRequest request, String name) {
+        String value = request.getParameter(name);
+        return value == null ? "" : value.trim();
+    }
+
     private static class AuthException extends RuntimeException {
         AuthException(String message) {
             super(message);
         }
     }
 }
+

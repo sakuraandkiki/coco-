@@ -7,11 +7,23 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class Web {
-    public static final Gson GSON = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").create();
+    public static final Gson GSON = new GsonBuilder()
+            .setDateFormat("yyyy-MM-dd HH:mm:ss")
+            .registerTypeAdapter(LocalDateTime.class, (com.google.gson.JsonSerializer<LocalDateTime>) (value, type, context) ->
+                    value == null ? null : context.serialize(value.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
+            .registerTypeAdapter(LocalDate.class, (com.google.gson.JsonSerializer<LocalDate>) (value, type, context) ->
+                    value == null ? null : context.serialize(value.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+            .registerTypeAdapter(LocalTime.class, (com.google.gson.JsonSerializer<LocalTime>) (value, type, context) ->
+                    value == null ? null : context.serialize(value.format(DateTimeFormatter.ISO_LOCAL_TIME)))
+            .create();
 
     private Web() {
     }
